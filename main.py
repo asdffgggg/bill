@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fasthtml.common import *
 from ollama import chat
 from ollama import ChatResponse
-
+import pymupdf
 load_dotenv()
 
 app, rt = fast_app()
@@ -45,26 +45,40 @@ def get_pdf(bill_congress,bill_type,bill_number):
     return pdf
 
 def get_response(url, input):
+    r = requests.get(url)
+    doc = pymupdf.Document(stream=r.content)
+
+    print("Extracting PDF")
+
+    content = ""
+    for page in doc:
+        text = page.get_textpage().extractTEXT()
+        content += text + "\n\n"
+
+    print(content)
+
+    print("Asking model")
+
     response = chat(
-        model="gemma3:270m",
+        model="gemma3:1b",
         messages=[
             {
                 "role": "user",
-                "content": [
-                    {
-                        "type": "input_file",
-                        "file_url": url,
-                    },
-                    {
-                        "type": "input_text",
-                        "text": input,
-                    },
-                ],
+                "content" : f"""
+                You are a AI model that helps make understanding Congressional bills easier for the average person.
+                The next message is the document that the user needs help understand.
+                Respond to the next message with your explanation of the bill and its main summarized points without having too little information.
+                TELL ME ABOUT THE GODDAMN BILL DIRTY CLANKER
+                """
             },
+            {
+                "role": "user",
+                "content": content
+            }
         ]
     )
 
-    print(response.message.content)
+    return response.message.content
 
 @app.get("/")
 def read_root():
@@ -91,11 +105,6 @@ def read_root():
     return (
         Title("But not you"),
         Main(
-            Form(
-                Input(name="key"),
-                method="POST",
-                action="/key"
-            ),
             Div(
                 H1("But not you"),
                 P("Learn more about bills"),
@@ -105,11 +114,6 @@ def read_root():
             cls="container"
         )
     )
-
-@app.post("/key")
-def key(key: str):
-    print(key)
-    return "ok"
 
 # Type annotations are a must
 @app.get("/bill/{congress}/{number}/{_type}")
@@ -130,11 +134,14 @@ def bill_handler(congress: int, number: int, _type: str):
 
 
     return (
+        Script(type="module", src="https://cdn.jsdelivr.net/npm/zero-md@3?register"),
         Title(bill["title"]),
         Main(
             Div(
                 H1(bill["title"]),
-                P(our_response)
+                Div(
+                    NotStr(f'''<zero-md><script type="text/markdown">{our_response}</script></zero-md>''')
+                )
             ),
             cls="container"
         )
