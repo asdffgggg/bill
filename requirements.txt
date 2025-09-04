@@ -3,4 +3,5 @@ openai
 dotenv
 python-fasthtml
 ollama
-pymudpf
+PyMuPDF
+starlette

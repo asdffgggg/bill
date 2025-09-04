@@ -7,9 +7,16 @@ from fasthtml.common import *
 from ollama import chat
 from ollama import ChatResponse
 import pymupdf
+from starlette.responses import StreamingResponse
+
 load_dotenv()
 
-app, rt = fast_app()
+app, rt = fast_app(
+    static_path="public",
+    hdrs=(
+        Link(href="stylesheet", rel="/public/index.css")
+    )
+)
 
 
 def get_bills():
@@ -115,6 +122,10 @@ def read_root():
         )
     )
 
+@app.get("/public/{fname}.{ext}")
+async def public_get(fname: str, ext: str):
+    return FileResponse(f"public/{fname}.{ext}")
+
 # Type annotations are a must
 @app.get("/bill/{congress}/{number}/{_type}")
 def bill_handler(congress: int, number: int, _type: str):
@@ -135,17 +146,44 @@ def bill_handler(congress: int, number: int, _type: str):
 
     return (
         Script(type="module", src="https://cdn.jsdelivr.net/npm/zero-md@3?register"),
+        Style("@import /public/index.css"),
         Title(bill["title"]),
         Main(
             Div(
                 H1(bill["title"]),
                 Div(
-                    NotStr(f'''<zero-md><script type="text/markdown">{our_response}</script></zero-md>''')
+                    Iframe(src=f"/bill/pdf/{congress}/{number}/{_type}"),
+                    Div(
+                        NotStr(f'''<zero-md><script type="text/markdown">{our_response}</script></zero-md>''')
+                    ),
+                    id="content-container"
                 )
             ),
             cls="container"
         )
     )
+
+@app.get("/bill/pdf/{congress}/{number}/{_type}")
+async def bill_handler_pdf(congress: int, number: int, _type: str):
+    b1lls = get_bills()
+    bill = None
+    for b in b1lls:
+        if b["congress"] == congress and b["number"] == str(number) and b["type"] == _type:
+            bill = b
+            break
+
+    if bill == None:
+        return H1("You do one we donthave/ dont exist")
+    
+    our_pdf = get_pdf(congress, _type.lower(), number)
+    pdf = requests.get(our_pdf, stream=True)
+
+    async def pdf_response(pdf):
+        for chunk in pdf.iter_content(chunk_size=2048):
+            yield chunk
+
+    return StreamingResponse(pdf_response(pdf), media_type="application/pdf")
+
 
 serve()
 
