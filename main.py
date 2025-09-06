@@ -14,7 +14,8 @@ load_dotenv()
 app, rt = fast_app(
     static_path="public",
     hdrs=(
-        Link(href="stylesheet", rel="/public/index.css")
+        MarkdownJS(),
+        Link(rel="stylesheet", href="/index.css")
     )
 )
 
@@ -51,7 +52,7 @@ def get_pdf(bill_congress,bill_type,bill_number):
     pdf = reponse.json()['textVersions'][0]['formats'][1]['url']
     return pdf
 
-def get_response(url, input):
+def get_response_stream(url, input):
     r = requests.get(url)
     doc = pymupdf.Document(stream=r.content)
 
@@ -67,26 +68,31 @@ def get_response(url, input):
     print("Asking model")
 
     response = chat(
-        model="gemma3:1b",
+        model="gemma3:270m",
         messages=[
             {
                 "role": "user",
-                "content" : f"""
-                You are a AI model that helps make understanding Congressional bills easier for the average person.
-                The next message is the document that the user needs help understand.
-                Respond to the next message with your explanation of the bill and its main summarized points without having too little information.
-                TELL ME ABOUT THE GODDAMN BILL DIRTY CLANKER
-                """
-            },
-            {
-                "role": "user",
-                "content": content
+                "content": "Why is the sky blue?"
+                # "content" : f"""
+                # You are a AI model that helps make understanding Congressional bills easier for the average person.
+                # The next message is the document that the user needs help understand.
+                # Respond to the next message with your explanation of the bill and its main summarized points without having too little information.
+                # TELL ME ABOUT THE GODDAMN BILL DIRTY CLANKER
+                # """
             }
-        ]
+            # {
+            #     "role": "user",
+            #     "content": content
+            # }
+        ],
+        stream=True
     )
 
-    return response.message.content
+    for chunk in response:
+        print(chunk["message"]["content"], end="", flush=True)
+        yield chunk["message"]["content"]
 
+    
 @app.get("/")
 def read_root():
     bills = get_bills()
@@ -141,27 +147,46 @@ def bill_handler(congress: int, number: int, _type: str):
     
     print(bill)
     our_pdf = get_pdf(congress, _type.lower(), number)
-    our_response = get_response(our_pdf, "explain it")
+    # our_response = get_response(our_pdf, "explain it")
 
 
     return (
-        Script(type="module", src="https://cdn.jsdelivr.net/npm/zero-md@3?register"),
-        Style("@import /public/index.css"),
         Title(bill["title"]),
         Main(
             Div(
                 H1(bill["title"]),
                 Div(
-                    Iframe(src=f"/bill/pdf/{congress}/{number}/{_type}"),
+                    Iframe(src=f"/bill/pdf/{congress}/{number}/{_type}", width="100%"),
                     Div(
-                        NotStr(f'''<zero-md><script type="text/markdown">{our_response}</script></zero-md>''')
+                        P("Loading model analysis"),
+                        hx_get=f"/model/bill/{congress}/{number}/{_type}",
+                        hx_trigger="load"
                     ),
-                    id="content-container"
+                    id="content-container",
+                    cls="grid"
                 )
             ),
             cls="container"
         )
     )
+
+@app.get("/model/bill/{congress}/{number}/{_type}")
+def model_bill_handler(congress: int, number: int, _type: str):
+    b1lls = get_bills()
+    bill = None
+    for b in b1lls:
+        if b["congress"] == congress and b["number"] == str(number) and b["type"] == _type:
+            bill = b
+            break
+
+    if bill == None:
+        return H1("You do one we donthave/ dont exist")
+    
+    our_pdf = get_pdf(congress, _type.lower(), number)
+
+    return StreamingResponse(get_response_stream(our_pdf, "explain it"), media_type="text")
+
+
 
 @app.get("/bill/pdf/{congress}/{number}/{_type}")
 async def bill_handler_pdf(congress: int, number: int, _type: str):
@@ -200,7 +225,7 @@ serve()
 # #   numbrdex = int(input("What bill would you like? "))
 #
 # # bill = bills[numbrdex - 1]
-# # bill_number = bill['number']
+# # bill_number = bill['number']def get_response(url
 # # bill_type = bill["type"].lower()
 # # bill_congress = bill['congress']
 # # billsthatwork = []
