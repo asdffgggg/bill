@@ -1,23 +1,30 @@
+import asyncio
 import requests
 import json
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
 from fasthtml.common import *
+from fasthtml.components import Zero_md
 from ollama import chat
 from ollama import ChatResponse
+from ollama import AsyncClient
 import pymupdf
+from requests_cache import CachedSession
 from starlette.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 load_dotenv()
 
 app, rt = fast_app(
     static_path="public",
     hdrs=(
-        MarkdownJS(),
+        Script(type="module", src="https://cdn.jsdelivr.net/npm/zero-md@3?register"),
+        Script(src="https://cdn.jsdelivr.net/npm/htmx-ext-ws@2.0.2"),
         Link(rel="stylesheet", href="/index.css")
     )
 )
+SESSION = CachedSession("requests_cache", expire_after=300) # 5 minute expiration cache
 
 
 def get_bills():
@@ -30,9 +37,16 @@ def get_bills():
         "api_key": apikey
     }
     # Perform the GET request to the general bill endpoint
-    response = requests.get(head + endpoint, params=params)
+    response = SESSION.get(head + endpoint, params=params)
     bills = response.json()['bills']
     return bills
+
+def find_bill(congress, number, _type):
+    b1lls = get_bills()
+    for b in b1lls:
+        if b["congress"] == congress and b["number"] == str(number) and b["type"] == _type:
+            return b
+    return None
 
 def get_pdf(bill_congress,bill_type,bill_number):
     head = "https://api.congress.gov/"
@@ -43,17 +57,17 @@ def get_pdf(bill_congress,bill_type,bill_number):
     }
     bill_congress = int(bill_congress)
     textpoint = f"v3/bill/{bill_congress}/{bill_type}/{bill_number}/text"
-    reponse = requests.get(head + textpoint, params=params)
+    reponse = SESSION.get(head + textpoint, params=params)
     print(reponse.json())
     while len(reponse.json()['textVersions']) == 0:
         bill_congress -= 1
         textpoint = f"v3/bill/{bill_congress}/{bill_type}/{bill_number}/text"
-        reponse = requests.get(head + textpoint, params=params)
+        reponse = SESSION.get(head + textpoint, params=params)
     pdf = reponse.json()['textVersions'][0]['formats'][1]['url']
     return pdf
 
-def get_response_stream(url, input):
-    r = requests.get(url)
+async def get_response_stream(url, send):
+    r = SESSION.get(url)
     doc = pymupdf.Document(stream=r.content)
 
     print("Extracting PDF")
@@ -63,11 +77,10 @@ def get_response_stream(url, input):
         text = page.get_textpage().extractTEXT()
         content += text + "\n\n"
 
-    print(content)
-
     print("Asking model")
-
-    response = chat(
+    
+    client = AsyncClient()
+    response = await client.chat(
         model="gemma3:270m",
         messages=[
             {
@@ -77,7 +90,7 @@ def get_response_stream(url, input):
                 # You are a AI model that helps make understanding Congressional bills easier for the average person.
                 # The next message is the document that the user needs help understand.
                 # Respond to the next message with your explanation of the bill and its main summarized points without having too little information.
-                # TELL ME ABOUT THE GODDAMN BILL DIRTY CLANKER
+                # 
                 # """
             }
             # {
@@ -88,9 +101,25 @@ def get_response_stream(url, input):
         stream=True
     )
 
-    for chunk in response:
+    # Markdown rendering header
+    # await send(Div(
+    #     NotStr('<zero-md><template></template><script type="text/markdown">'),
+    #     id="response",
+    #     hx_swap_oob="beforebegin"
+    # ))
+
+    async for chunk in response:
         print(chunk["message"]["content"], end="", flush=True)
-        yield chunk["message"]["content"]
+        await send(Script(
+            chunk["message"]["content"],
+            id="response",
+            hx_swap_oob="beforebegin"))
+    # </script></zero-md>
+    # await send(Div(
+    #     NotStr('</script></zero-md>'),
+    #     id='response',
+    #     hx_swap_oob="beforebegin"
+    # ))
 
     
 @app.get("/")
@@ -158,44 +187,74 @@ def bill_handler(congress: int, number: int, _type: str):
                 Div(
                     Iframe(src=f"/bill/pdf/{congress}/{number}/{_type}", width="100%"),
                     Div(
-                        P("Loading model analysis"),
-                        hx_get=f"/model/bill/{congress}/{number}/{_type}",
-                        hx_trigger="load"
+                        # Zero_md(
+                        #     Template(),
+                        #     Script(type="text/markdown", id="response")
+                        # ),
+                        Textarea(id="response"),
+                        Form(
+                            Input(
+                                id="msg",
+                                hidden=True,
+                                value=json.dumps({
+                                    "phase": 0,
+                                    "congress": congress,
+                                    "number": number,
+                                    "type": _type
+                                }),
+                                hx_trigger="load"
+                            ),
+                            Input(type="submit", value="Get analysis"),
+                            ws_send=True
+                        ),
+                        Form(Input(id="msg"), ws_send=True)
                     ),
                     id="content-container",
-                    cls="grid"
+                    cls="grid",
+                    hx_ext="ws",
+                    ws_connect=f"/model/bill"
                 )
             ),
             cls="container"
         )
     )
 
-@app.get("/model/bill/{congress}/{number}/{_type}")
-def model_bill_handler(congress: int, number: int, _type: str):
-    b1lls = get_bills()
-    bill = None
-    for b in b1lls:
-        if b["congress"] == congress and b["number"] == str(number) and b["type"] == _type:
-            bill = b
-            break
-
-    if bill == None:
-        return H1("You do one we donthave/ dont exist")
+@app.ws("/model/bill")
+async def model_bill_handler(msg: str, send):
+    data = json.loads(msg)
+    print(data)
+    phase = data["phase"]
+    congress = data["congress"]
+    number = data["number"]
+    _type = data["type"]
     
-    our_pdf = get_pdf(congress, _type.lower(), number)
 
-    return StreamingResponse(get_response_stream(our_pdf, "explain it"), media_type="text")
+    if phase == 0:
+        bill = find_bill(congress, number, _type)
+
+        if bill == None:
+            return H1("You do one we donthave/ dont exist")
+        
+        our_pdf = get_pdf(congress, _type.lower(), number)
+        # TODO: use fasthtml background task
+        #response = StreamingResponse(get_response_stream(our_pdf, "explain it"), media_type="text/html")
+        
+        asyncio.create_task(get_response_stream(our_pdf, send))
+        response = Textarea(id="response")
+    else:
+        response = Textarea(
+            P("Hi"),
+            id="response",
+            hx_swap_oob="beforebegin" if phase != 0 else False
+        )
+
+    await send(response)
 
 
 
 @app.get("/bill/pdf/{congress}/{number}/{_type}")
 async def bill_handler_pdf(congress: int, number: int, _type: str):
-    b1lls = get_bills()
-    bill = None
-    for b in b1lls:
-        if b["congress"] == congress and b["number"] == str(number) and b["type"] == _type:
-            bill = b
-            break
+    bill = find_bill(congress, number, _type)
 
     if bill == None:
         return H1("You do one we donthave/ dont exist")

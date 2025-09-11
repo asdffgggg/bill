@@ -5,3 +5,4 @@ python-fasthtml
 ollama
 PyMuPDF
 starlette
+requests-cache
