@@ -66,7 +66,7 @@ def get_pdf(bill_congress,bill_type,bill_number):
     pdf = reponse.json()['textVersions'][0]['formats'][1]['url']
     return pdf
 
-async def get_response_stream(url, send):
+async def get_response_stream(url, input, send):
     r = SESSION.get(url)
     doc = pymupdf.Document(stream=r.content)
 
@@ -78,48 +78,43 @@ async def get_response_stream(url, send):
         content += text + "\n\n"
 
     print("Asking model")
+
+    messages = [
+        {
+            "role": "user",
+            "content" : f"""
+            You are a AI model that helps make understanding Congressional bills easier for the average person.
+            The next message is the document that the user needs help understand.
+            All messages after the next message are from the user.
+            Respond to the next message with your explanation of the bill and its main summarized points without having too little information.
+            """
+        },
+        {
+            "role": "user",
+            "content": content
+        }
+    ]
+
+    if input != "":
+        messages.append({
+            "role": "user",
+            "content": input
+        })
     
     client = AsyncClient()
     response = await client.chat(
         model="gemma3:270m",
-        messages=[
-            {
-                "role": "user",
-                "content": "Why is the sky blue?"
-                # "content" : f"""
-                # You are a AI model that helps make understanding Congressional bills easier for the average person.
-                # The next message is the document that the user needs help understand.
-                # Respond to the next message with your explanation of the bill and its main summarized points without having too little information.
-                # 
-                # """
-            }
-            # {
-            #     "role": "user",
-            #     "content": content
-            # }
-        ],
+        messages=messages,
         stream=True
     )
-
-    # Markdown rendering header
-    # await send(Div(
-    #     NotStr('<zero-md><template></template><script type="text/markdown">'),
-    #     id="response",
-    #     hx_swap_oob="beforebegin"
-    # ))
 
     async for chunk in response:
         print(chunk["message"]["content"], end="", flush=True)
         await send(Script(
             chunk["message"]["content"],
             id="response",
-            hx_swap_oob="beforebegin"))
-    # </script></zero-md>
-    # await send(Div(
-    #     NotStr('</script></zero-md>'),
-    #     id='response',
-    #     hx_swap_oob="beforebegin"
-    # ))
+            type="text/markdown",
+            hx_swap_oob="beforeend"))
 
     
 @app.get("/")
@@ -185,13 +180,20 @@ def bill_handler(congress: int, number: int, _type: str):
             Div(
                 H1(bill["title"]),
                 Div(
-                    Iframe(src=f"/bill/pdf/{congress}/{number}/{_type}", width="100%"),
+                    Iframe(src=f"/bill/pdf/{congress}/{number}/{_type}", width="100%", height = '100%'),
                     Div(
-                        # Zero_md(
-                        #     Template(),
-                        #     Script(type="text/markdown", id="response")
-                        # ),
-                        Textarea(id="response"),
+                        Zero_md(
+                            Template(),
+                            Script(type="text/markdown", id="response")
+                        ),
+                        # Textarea(id="response"),
+                        Script("""
+                            function remove_model_analysis() {
+                               
+                               let el = document.getElementById("model_analysis_btn");
+                               el.outerHTML = "";
+                            }
+                        """),
                         Form(
                             Input(
                                 id="msg",
@@ -204,11 +206,40 @@ def bill_handler(congress: int, number: int, _type: str):
                                 }),
                                 hx_trigger="load"
                             ),
-                            Input(type="submit", value="Get analysis"),
+                            Input(type="submit", value="Get analysis"),\
+                            onsubmit="setTimeout(remove_model_analysis, 1000)",
+                            id="model_analysis_btn",
                             ws_send=True
                         ),
-                        Form(Input(id="msg"), ws_send=True)
+                        Form(
+                            Script("""
+                            function prepare_ask_model() {
+                                let el = document.querySelector("#ask_model_form > #msg");
+                                let payload_el = document.querySelector("#ask_model_in");
+                                let data = JSON.parse(el.value);
+                                data.payload = payload_el.value;
+                                el.value = JSON.stringify(data);
+                            }
+                            """),
+                            Input(id="ask_model_in", placeholder="Ask the model something..."),
+                            Input(
+                                id="msg",
+                                hidden=True,
+                                value=json.dumps({
+                                    "phase": 1,
+                                    "congress": congress,
+                                    "number": number,
+                                    "type": _type,
+                                    "payload": "",
+                                }),
+                            ),
+                            Input(type="submit", value="Ask"),
+                            onsubmit="prepare_ask_model()",
+                            id="ask_model_form",
+                            ws_send=True
+                        )
                     ),
+                    style="min-height: 83vh",
                     id="content-container",
                     cls="grid",
                     hx_ext="ws",
@@ -236,16 +267,26 @@ async def model_bill_handler(msg: str, send):
             return H1("You do one we donthave/ dont exist")
         
         our_pdf = get_pdf(congress, _type.lower(), number)
-        # TODO: use fasthtml background task
-        #response = StreamingResponse(get_response_stream(our_pdf, "explain it"), media_type="text/html")
-        
-        asyncio.create_task(get_response_stream(our_pdf, send))
-        response = Textarea(id="response")
+
+        asyncio.create_task(get_response_stream(our_pdf, "", send))
+        response = Script(type="text/markdown", id="response")
     else:
-        response = Textarea(
-            P("Hi"),
+        payload = data["payload"]
+        
+        bill = find_bill(congress, number, _type)
+
+        if bill == None:
+            return H1("You do one we donthave/ dont exist")
+        
+        our_pdf = get_pdf(congress, _type.lower(), number)
+
+        asyncio.create_task(get_response_stream(our_pdf, payload, send))
+
+        response = Script(
+            "\n\n---\n\n",
             id="response",
-            hx_swap_oob="beforebegin" if phase != 0 else False
+            type = "text/markdown",
+            hx_swap_oob="beforeend"
         )
 
     await send(response)
