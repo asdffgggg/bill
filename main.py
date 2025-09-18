@@ -13,6 +13,8 @@ import pymupdf
 from requests_cache import CachedSession
 from starlette.responses import StreamingResponse
 from starlette.background import BackgroundTask
+import uuid
+import time
 
 load_dotenv()
 
@@ -25,6 +27,16 @@ app, rt = fast_app(
     )
 )
 SESSION = CachedSession("requests_cache", expire_after=300) # 5 minute expiration cache
+
+# Connection information is stored in the following format:
+# The key is a UUID
+# The value is a dictionary: {
+#   "last_time": UNIX_TIMESTAMP,
+#   "messages": []
+# }
+CONNECTIONS = {
+    
+}
 
 
 def get_bills():
@@ -66,7 +78,7 @@ def get_pdf(bill_congress,bill_type,bill_number):
     pdf = reponse.json()['textVersions'][0]['formats'][1]['url']
     return pdf
 
-async def get_response_stream(url, input, send):
+async def get_response_stream(url, input, id, send):
     r = SESSION.get(url)
     doc = pymupdf.Document(stream=r.content)
 
@@ -86,20 +98,46 @@ async def get_response_stream(url, input, send):
             You are a AI model that helps make understanding Congressional bills easier for the average person.
             The next message is the document that the user needs help understand.
             All messages after the next message are from the user.
-            Respond to the next message with your explanation of the bill and its main summarized points without having too little information.
             """
-        },
-        {
-            "role": "user",
-            "content": content
         }
     ]
 
     if input != "":
+        additional_context = ""
+        prior_messages = CONNECTIONS[id]['messages']
+
+        for message in prior_messages:
+            additional_context += f"""
+
+            Question: {message[0]}
+            Answer: {message[1]}
+            
+            """
+
         messages.append({
             "role": "user",
-            "content": input
+            "content": f"""
+            You, the model, have already said the following:
+            {additional_context}
+
+            ---
+            Now respond to this question:
+
+            {input}
+            """
         })
+    else:
+        messages.append({
+            "role": "user",
+            "content": f"""
+            Summarize this bill:
+            
+            {content}
+            """
+        })
+
+    response_index = len(CONNECTIONS[id]['messages'])
+    CONNECTIONS[id]["messages"].append([input, ""])
     
     client = AsyncClient()
     response = await client.chat(
@@ -110,6 +148,7 @@ async def get_response_stream(url, input, send):
 
     async for chunk in response:
         print(chunk["message"]["content"], end="", flush=True)
+        CONNECTIONS[id]["messages"][response_index][1] += chunk["message"]["content"]
         await send(Script(
             chunk["message"]["content"],
             id="response",
@@ -173,6 +212,7 @@ def bill_handler(congress: int, number: int, _type: str):
     our_pdf = get_pdf(congress, _type.lower(), number)
     # our_response = get_response(our_pdf, "explain it")
 
+    id = uuid.uuid4()
 
     return (
         Title(bill["title"]),
@@ -202,7 +242,8 @@ def bill_handler(congress: int, number: int, _type: str):
                                     "phase": 0,
                                     "congress": congress,
                                     "number": number,
-                                    "type": _type
+                                    "type": _type,
+                                    "uuid": str(id)
                                 }),
                                 hx_trigger="load"
                             ),
@@ -231,6 +272,7 @@ def bill_handler(congress: int, number: int, _type: str):
                                     "number": number,
                                     "type": _type,
                                     "payload": "",
+                                    "uuid": str(id)
                                 }),
                             ),
                             Input(type="submit", value="Ask"),
@@ -258,7 +300,14 @@ async def model_bill_handler(msg: str, send):
     congress = data["congress"]
     number = data["number"]
     _type = data["type"]
+    id = data["uuid"]
     
+    if CONNECTIONS.get(id, None) is None:
+        # CONNECTIONS["key"] = value
+        CONNECTIONS[id] = {
+            "last_time": time.time(),
+            "messages" : []
+        }
 
     if phase == 0:
         bill = find_bill(congress, number, _type)
@@ -268,7 +317,7 @@ async def model_bill_handler(msg: str, send):
         
         our_pdf = get_pdf(congress, _type.lower(), number)
 
-        asyncio.create_task(get_response_stream(our_pdf, "", send))
+        asyncio.create_task(get_response_stream(our_pdf, "", id, send))
         response = Script(type="text/markdown", id="response")
     else:
         payload = data["payload"]
@@ -280,7 +329,7 @@ async def model_bill_handler(msg: str, send):
         
         our_pdf = get_pdf(congress, _type.lower(), number)
 
-        asyncio.create_task(get_response_stream(our_pdf, payload, send))
+        asyncio.create_task(get_response_stream(our_pdf, payload, id, send))
 
         response = Script(
             "\n\n---\n\n",
