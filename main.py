@@ -1,7 +1,7 @@
 import asyncio
 import requests
 import json
-from openai import OpenAI
+# from openai import OpenAI
 import os
 from dotenv import load_dotenv
 from fasthtml.common import *
@@ -184,12 +184,28 @@ def read_root():
             Div(
                 H1("But not you"),
                 P("Learn more about bills"),
+                Form(
+                   
+                    Label("Chamber"),
+                    Input(type= "text", name='chamber'),
+                    Label("Congress"),
+                    Input(type= "text", name='congress'),
+                    Label("Number"),
+                    Input(type= "text", name='number'),
+                    Input(type='submit', value='search'),
+                    method="post",
+                    action="/search",
+                ),
                 Hr(),
                 *bill_elements
             ),
             cls="container"
         )
     )
+
+@app.post("/search")
+async def searchfor_bill(data):
+    print(data)
 
 @app.get("/public/{fname}.{ext}")
 async def public_get(fname: str, ext: str):
