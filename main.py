@@ -15,6 +15,7 @@ from starlette.responses import StreamingResponse
 from starlette.background import BackgroundTask
 import uuid
 import time
+from dataclasses import dataclass
 
 load_dotenv()
 
@@ -54,11 +55,16 @@ def get_bills():
     return bills
 
 def find_bill(congress, number, _type):
-    b1lls = get_bills()
-    for b in b1lls:
-        if b["congress"] == congress and b["number"] == str(number) and b["type"] == _type:
-            return b
-    return None
+    head = "https://api.congress.gov/"
+    endpoint = f"v3/bill/{congress}/{_type}/{number}"
+    apikey = os.getenv("CONGRESSAPIKEY")
+
+    params = {
+        "format": "json",
+        "api_key": apikey
+    }
+    # Perform the GET request to the general bill endpoint
+    return SESSION.get(head + endpoint, params=params).json()["bill"]
 
 def get_pdf(bill_congress,bill_type,bill_number):
     head = "https://api.congress.gov/"
@@ -189,9 +195,9 @@ def read_root():
                     Label("Chamber"),
                     Input(type= "text", name='chamber'),
                     Label("Congress"),
-                    Input(type= "text", name='congress'),
+                    Input(type= "number", name='congress'),
                     Label("Number"),
-                    Input(type= "text", name='number'),
+                    Input(type= "number", name='number'),
                     Input(type='submit', value='search'),
                     method="post",
                     action="/search",
@@ -203,9 +209,18 @@ def read_root():
         )
     )
 
+
+@dataclass
+class SearchQ:
+    chamber: str
+    congress: int
+    number: int
+
+
 @app.post("/search")
-async def searchfor_bill(data):
-    print(data)
+async def searchfor_bill(data: SearchQ):
+    print(f"data:{data}")
+    return bill_handler(data.congress,data.number,data.chamber)
 
 @app.get("/public/{fname}.{ext}")
 async def public_get(fname: str, ext: str):
@@ -214,12 +229,7 @@ async def public_get(fname: str, ext: str):
 # Type annotations are a must
 @app.get("/bill/{congress}/{number}/{_type}")
 def bill_handler(congress: int, number: int, _type: str):
-    b1lls = get_bills()
-    bill = None
-    for b in b1lls:
-        if b["congress"] == congress and b["number"] == str(number) and b["type"] == _type:
-            bill = b
-            break
+    bill = find_bill(congress,number,_type)
 
     if bill == None:
         return H1("You do one we donthave/ dont exist")
