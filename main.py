@@ -40,9 +40,9 @@ CONNECTIONS = {
 }
 
 
-def get_bills():
+def get_bills(laws: Optional[int] = None):
     head = "https://api.congress.gov/"
-    endpoint = "v3/bill"
+    endpoint = "v3/bill" if not laws else f"v3/law/{laws}"
     apikey = os.getenv("CONGRESSAPIKEY")
 
     params = {
@@ -161,10 +161,16 @@ async def get_response_stream(url, input, id, send):
             type="text/markdown",
             hx_swap_oob="beforeend"))
 
-    
-@app.get("/")
-def read_root():
-    bills = get_bills()
+
+
+
+
+
+
+
+def main_list(laws:Optional[int]):
+
+    bills = get_bills(laws)
     print(bills)
 
     bill_elements = []
@@ -184,6 +190,16 @@ def read_root():
             P(f"Chamber of Origin: {origin_chamber}")
         ))
 
+    law_select = None
+    if laws:
+        law_select = Form(
+            Input( type = "number", name="congress", value=str(laws)),
+            method="get",
+            action = "/laws"
+        ),
+
+        
+
     return (
         Title("But not you"),
         Main(
@@ -197,9 +213,7 @@ def read_root():
                             Option("House of Representatives", value = "HR"),
                             Option("Senate", value = "SRES"),
                             name = "chamber"
-                            
                         ),
-                        # Input(type= "", name='chamber', id='chamber', placeholder = "chamber"),
                         Input(type= "number", name='congress', id='congress', placeholder = "congress"),
                         Input(type= "number", name='number', id='number', placeholder = "number"),
                         Input(type='submit', value='search'),
@@ -210,13 +224,30 @@ def read_root():
                     
                 ),
                 Hr(),
+                Div(
+                    A("Bills",href ="/"), 
+                    A("Laws",href ="/laws"),
+                    law_select,
+                    cls = "horizontal" 
+                ),
+                Br(),
                 *bill_elements
             ),
             cls="container"
         )
     )
 
-
+@app.get("/")
+def read_root():
+    return main_list(laws=None)
+@app.get("/laws/{congress}")
+def read_laws(congress:str):
+    print(f"laws: ({congress})")
+    try:
+        laws = int(congress)
+    except:
+        laws = 119
+    return main_list(laws=laws)
 @dataclass
 class SearchQ:
     chamber: str
