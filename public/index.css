@@ -1,3 +1,9 @@
 doesnt-exist {
     background-color: rgba(104, 160, 192, 0.527) !important;
 }
+
+
+.horizontal {
+    display: flex;
+    gap: 2.5324900081702em
+}

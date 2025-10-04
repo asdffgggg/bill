@@ -190,17 +190,24 @@ def read_root():
             Div(
                 H1("But not you"),
                 P("Learn more about bills"),
+                
                 Form(
-                   
-                    Label("Chamber"),
-                    Input(type= "text", name='chamber'),
-                    Label("Congress"),
-                    Input(type= "number", name='congress'),
-                    Label("Number"),
-                    Input(type= "number", name='number'),
-                    Input(type='submit', value='search'),
+                    Div(
+                        Select(
+                            Option("House of Representatives", value = "HR"),
+                            Option("Senate", value = "SRES"),
+                            name = "chamber"
+                            
+                        ),
+                        # Input(type= "", name='chamber', id='chamber', placeholder = "chamber"),
+                        Input(type= "number", name='congress', id='congress', placeholder = "congress"),
+                        Input(type= "number", name='number', id='number', placeholder = "number"),
+                        Input(type='submit', value='search'),
+                        cls  = "horizontal"
+                    ),
                     method="post",
                     action="/search",
+                    
                 ),
                 Hr(),
                 *bill_elements
