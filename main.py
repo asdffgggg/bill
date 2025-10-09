@@ -240,8 +240,8 @@ def main_list(laws:Optional[int]):
 @app.get("/")
 def read_root():
     return main_list(laws=None)
-@app.get("/laws/{congress}")
-def read_laws(congress:str):
+@app.get("/laws/")
+def read_laws(congress:str = ""):
     print(f"laws: ({congress})")
     try:
         laws = int(congress)
