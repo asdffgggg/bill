@@ -39,7 +39,6 @@ CONNECTIONS = {
     
 }
 
-
 def get_bills(laws: Optional[int] = None):
     head = "https://api.congress.gov/"
     endpoint = "v3/bill" if not laws else f"v3/law/{laws}"
@@ -53,6 +52,18 @@ def get_bills(laws: Optional[int] = None):
     response = SESSION.get(head + endpoint, params=params)
     bills = response.json()['bills']
     return bills
+
+def get_congressional_bills(congress, _type):
+    head = "https://api.congress.gov/"
+    endpoint = f"v3/bill/{congress}/{_type}"
+    apikey = os.getenv("CONGRESSAPIKEY")
+
+    params = {
+        "format": "json",
+        "api_key": apikey
+    }
+    # Perform the GET request to the general bill endpoint
+    return SESSION.get(head + endpoint, params=params).json()["bills"]
 
 def find_bill(congress, number, _type):
     head = "https://api.congress.gov/"
@@ -81,9 +92,11 @@ def get_pdf(bill_congress,bill_type,bill_number):
         bill_congress -= 1
         textpoint = f"v3/bill/{bill_congress}/{bill_type}/{bill_number}/text"
         reponse = SESSION.get(head + textpoint, params=params)
-    pdf = reponse.json()['textVersions'][0]['formats'][1]['url']
-    return pdf
-
+    try:
+        pdf = reponse.json()['textVersions'][0]['formats'][1]['url']
+        return pdf
+    except:
+        return ""
 async def get_response_stream(url, input, id, send):
     r = SESSION.get(url)
     doc = pymupdf.Document(stream=r.content)
@@ -168,9 +181,9 @@ async def get_response_stream(url, input, id, send):
 
 
 
-def main_list(laws:Optional[int]):
+def main_list(laws:Optional[int], custom_bills:Optional[Any]=None):
 
-    bills = get_bills(laws)
+    bills: list[Any] = custom_bills or get_bills(laws)
     print(bills)
 
     bill_elements = []
@@ -214,7 +227,7 @@ def main_list(laws:Optional[int]):
                             Option("Senate", value = "SRES"),
                             name = "chamber"
                         ),
-                        Input(type= "number", name='congress', id='congress', placeholder = "congress"),
+                        Input(type= "number", name='congress', id='congress', placeholder = "congress",required = True),
                         Input(type= "number", name='number', id='number', placeholder = "number"),
                         Input(type='submit', value='search'),
                         cls  = "horizontal"
@@ -252,14 +265,16 @@ def read_laws(congress:str = ""):
 class SearchQ:
     chamber: str
     congress: int
-    number: int
+    number: Optional[int]
 
 
 @app.post("/search")
 async def searchfor_bill(data: SearchQ):
     print(f"data:{data}")
-    return bill_handler(data.congress,data.number,data.chamber)
-
+    if data.number:
+        return bill_handler(data.congress,data.number,data.chamber)
+    else:
+        return main_list(laws=None, custom_bills=get_congressional_bills(data.congress,data.chamber) )
 @app.get("/public/{fname}.{ext}")
 async def public_get(fname: str, ext: str):
     return FileResponse(f"public/{fname}.{ext}")
