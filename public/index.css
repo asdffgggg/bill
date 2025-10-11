@@ -5,5 +5,14 @@ doesnt-exist {
 
 .horizontal {
     display: flex;
-    gap: 2.5324900081702em
+    gap: 2.5324900081702em;
+    flex-wrap: wrap
+}
+
+
+
+
+.searchinput {
+    min-width: 5.2em;
+    max-width: 16.2543em;
 }

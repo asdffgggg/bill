@@ -17,6 +17,17 @@ import uuid
 import time
 from dataclasses import dataclass
 
+
+
+
+
+
+
+
+
+
+
+
 load_dotenv()
 
 app, rt = fast_app(
@@ -164,6 +175,19 @@ async def get_response_stream(url, input, id, send):
         messages=messages,
         stream=True
     )
+#    response = openai.chat.completions.create(
+#        model="gpt-3.5-turbo",  # Or your desired model, e.g., "gpt-4"
+#        messages=[
+#            {"role": "system", "content": "You are a helpful assistant."},
+#            {"role": "user", "content": "What is the capital of France?"},
+#        ]
+#    )
+
+#    # Access the response content
+#    print(response.choices[0].message.content)
+
+
+
 
     async for chunk in response:
         print(chunk["message"]["content"], end="", flush=True)
@@ -214,10 +238,10 @@ def main_list(laws:Optional[int], custom_bills:Optional[Any]=None):
         
 
     return (
-        Title("But not you"),
+        Title("BillAI"),
         Main(
             Div(
-                H1("But not you"),
+                H1("BillAI"),
                 P("Learn more about bills"),
                 
                 Form(
@@ -225,11 +249,12 @@ def main_list(laws:Optional[int], custom_bills:Optional[Any]=None):
                         Select(
                             Option("House of Representatives", value = "HR"),
                             Option("Senate", value = "SRES"),
-                            name = "chamber"
+                            name = "chamber",
+                            cls ="searchinput"
                         ),
-                        Input(type= "number", name='congress', id='congress', placeholder = "congress",required = True),
-                        Input(type= "number", name='number', id='number', placeholder = "number"),
-                        Input(type='submit', value='search'),
+                        Input(type= "number", name='congress', id='congress', placeholder = "congress",required = True,cls ="searchinput"),
+                        Input(type= "number", name='number', id='number', placeholder = "number",cls ="searchinput"),
+                        Input(type='submit', value='search',cls ="searchinput"),
                         cls  = "horizontal"
                     ),
                     method="post",
