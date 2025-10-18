@@ -48,6 +48,7 @@ def get_bills(laws: Optional[int] = None):
     params = {"format": "json", "api_key": apikey}
     # Perform the GET request to the general bill endpoint
     response = SESSION.get(head + endpoint, params=params)
+    print(response.json())
     bills = response.json()["bills"]
     return bills
 
