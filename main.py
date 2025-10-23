@@ -1,8 +1,8 @@
 import asyncio
 import requests
 import json
-
-# from openai import OpenAI
+from openai import OpenAI
+import openai
 import os
 from dotenv import load_dotenv
 from fasthtml.common import *
@@ -157,25 +157,28 @@ async def get_response_stream(url, input, id, send):
     response_index = len(CONNECTIONS[id]["messages"])
     CONNECTIONS[id]["messages"].append([input, ""])
 
-    client = AsyncClient()
-    response = await client.chat(model="gemma3:270m", messages=messages, stream=True)
-    #    response = openai.chat.completions.create(
-    #        model="gpt-3.5-turbo",  # Or your desired model, e.g., "gpt-4"
-    #        messages=[
-    #            {"role": "system", "content": "You are a helpful assistant."},
-    #            {"role": "user", "content": "What is the capital of France?"},
-    #        ]
-    #    )
+    # client = AsyncClient()
+    # response = await client.chat(model="gemma3", messages=messages, stream=True)
+    
+    client = OpenAI(
+        # This is the default and can be omitted
+        api_key=os.environ.get("OPENAI_API_KEY"),
+    )
+    
+    response = client.chat.completions.create(
+        model="gpt-4",  # Or your desired model, e.g., "gpt-4"
+        messages= messages
+    )
 
-    #    # Access the response content
-    #    print(response.choices[0].message.content)
+       # Access the response content
+    print(response.choices[0].message.content)
 
-    async for chunk in response:
-        print(chunk["message"]["content"], end="", flush=True)
-        CONNECTIONS[id]["messages"][response_index][1] += chunk["message"]["content"]
+    for chunk in response.choices:
+        print(chunk.message.content, end="", flush=True)
+        CONNECTIONS[id]["messages"][response_index][1] += chunk.message.content
         await send(
             Script(
-                chunk["message"]["content"],
+                chunk.message.content,
                 id="response",
                 type="text/markdown",
                 hx_swap_oob="beforeend",
