@@ -6,3 +6,4 @@ ollama
 PyMuPDF
 starlette
 requests-cache
+uvicorn

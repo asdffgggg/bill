@@ -16,6 +16,7 @@ from starlette.responses import StreamingResponse
 from starlette.background import BackgroundTask
 import uuid
 import time
+import uvicorn
 from dataclasses import dataclass
 
 
@@ -475,7 +476,7 @@ async def bill_handler_pdf(congress: int, number: int, _type: str):
     return StreamingResponse(pdf_response(pdf), media_type="application/pdf")
 
 
-serve()
+uvicorn.run(app,host="0.0.0.0", port = 80)
 
 # @app.get("/bills")
 #
